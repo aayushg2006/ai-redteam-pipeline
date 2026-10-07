@@ -1,12 +1,14 @@
-"""Target chatbot for the AI Red-Team Pipeline.
+"""AcmeBank support chatbot (FastAPI + local Ollama model).
 
-DELIBERATELY VULNERABLE (v1) so the red-team suite has something to find:
-  - fake secrets live inside the system prompt (leakage target)
-  - user input goes to the model with no filtering (injection target)
-  - the UI renders replies with innerHTML (XSS / output-handling target)
+Every message goes through three layers of defence, all switched in rules.yaml:
 
-Set GUARDRAIL_ENABLED=true (and GUARDRAIL_URL) to put the ML guardrail service
-(guardrail/service.py) in front of the model.
+  1. input rules   (rules.py)            - regex rules for known attacks
+  2. ML guardrail  (guardrail service)   - classifier for paraphrased attacks
+  3. Ollama model  answers
+  4. output rules  (rules.py)            - block secret leaks, strip HTML
+
+If a layer blocks the message the user gets a polite refusal plus the reason,
+and the response says which layer blocked it (blocked_by).
 """
 import os
 from pathlib import Path
@@ -14,20 +16,22 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .config import SYSTEM_PROMPT
+from .rules import RULES, Verdict, check_input, check_output
 
 # 127.0.0.1, not "localhost": on Windows "localhost" can resolve to IPv6 (::1)
-# first while Ollama only listens on IPv4, which caused 502 errors.
+# first while Ollama only listens on IPv4.
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 MODEL_NAME = os.getenv("MODEL_NAME", "qwen2.5:3b")
-GUARDRAIL_ENABLED = os.getenv("GUARDRAIL_ENABLED", "false").lower() == "true"
 GUARDRAIL_URL = os.getenv("GUARDRAIL_URL", "http://127.0.0.1:8001")
+APP_VERSION = os.getenv("APP_VERSION", "dev")   # Jenkins sets this to build-<N>
 
-app = FastAPI(title="AcmeBank Support Bot (vulnerable target)", version="0.1.0")
-STATIC_DIR = Path(__file__).parent / "static"
+REFUSAL = "Sorry, I can't help with that request."
+
+app = FastAPI(title="AcmeBank Support Bot", version="1.0.0")
+INDEX_HTML = Path(__file__).parent / "static" / "index.html"
 
 
 class ChatRequest(BaseModel):
@@ -37,44 +41,38 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     blocked: bool = False
-    guardrail_enabled: bool = GUARDRAIL_ENABLED
+    blocked_by: str | None = None
+    reason: str | None = None
 
 
-async def guardrail_check(message: str) -> bool:
-    """Return True if the guardrail service says the message is an attack.
+def blocked_response(v: Verdict) -> ChatResponse:
+    return ChatResponse(reply=REFUSAL, blocked=True, blocked_by=v.blocked_by, reason=v.reason)
 
-    Fails CLOSED but loudly: if the guardrail is unreachable we answer 503
-    (not "blocked"), so a broken guardrail can never make the red-team suite
-    look like it passed. The runner reports 503s as ERROR (inconclusive).
-    """
+
+async def ml_guardrail(message: str) -> Verdict:
+    """Ask the guardrail service. If it is down we answer 503 instead of
+    letting the message through, so a broken guardrail can never look safe."""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(f"{GUARDRAIL_URL}/check", json={"text": message})
             r.raise_for_status()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=503, detail=f"Guardrail unavailable: {exc}")
-    return bool(r.json()["attack"])
+    result = r.json()
+    if result["attack"]:
+        return Verdict(True, "ml_guardrail",
+                       f"ML guardrail flagged a prompt attack (score {result['score']:.2f})")
+    return Verdict()
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok", "model": MODEL_NAME, "guardrail": GUARDRAIL_ENABLED}
-
-
-@app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
-    if GUARDRAIL_ENABLED and await guardrail_check(req.message):
-        return ChatResponse(
-            reply="Sorry, I can't help with that request.", blocked=True
-        )
-
+async def ask_model(message: str) -> str:
     payload = {
         "model": MODEL_NAME,
         "stream": False,
         "options": {"temperature": 0},  # keep tests as reproducible as possible
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": req.message},
+            {"role": "user", "content": message},
         ],
     }
     try:
@@ -83,13 +81,44 @@ async def chat(req: ChatRequest):
             r.raise_for_status()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
+    return r.json()["message"]["content"]
 
-    return ChatResponse(reply=r.json()["message"]["content"])
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest):
+    # Layer 1: input rules
+    verdict = check_input(req.message)
+    if verdict.blocked:
+        return blocked_response(verdict)
+
+    # Layer 2: ML guardrail
+    if RULES["ml_guardrail"]:
+        verdict = await ml_guardrail(req.message)
+        if verdict.blocked:
+            return blocked_response(verdict)
+
+    # The model answers, then layer 3: output rules
+    reply, verdict = check_output(await ask_model(req.message))
+    if verdict.blocked:
+        return blocked_response(verdict)
+    return ChatResponse(reply=reply)
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "version": APP_VERSION,
+        "model": MODEL_NAME,
+        "protection": {
+            "input_rules": RULES["input_rules"]["enabled"],
+            "ml_guardrail": RULES["ml_guardrail"],
+            "output_rules": RULES["output_rules"]["block_secret_leaks"]
+                            or RULES["output_rules"]["strip_html"],
+        },
+    }
 
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC_DIR / "index.html")
-
-
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    return FileResponse(INDEX_HTML)

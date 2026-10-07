@@ -1,18 +1,26 @@
+# One compose file, used as three separate "projects" (-p) by Jenkins:
+#
+#   acme-candidate  CHATBOT_PORT=9000  the new build, under test
+#   acme-prod       CHATBOT_PORT=8000  what users see; only replaced when all tests pass
+#   acme-dashboard  port 8090          deployment status page (service "dashboard")
+#
+# IMAGE_TAG (build-<N> in Jenkins) names the images, so the exact images that
+# passed the tests on the candidate are the ones started in production.
+#
+# Local run:  python -m guardrail.train   then   docker compose up --build
 services:
-  # ML prompt-injection guardrail: trained and quality-gated during the image build.
+  # ML prompt-injection guardrail. Internal only: no port published to the host.
   guardrail:
     build:
       context: .
       dockerfile: guardrail/Dockerfile
-    container_name: acme-guardrail
-    ports:
-      - "8001:8001"
+    image: acme-guardrail:${IMAGE_TAG:-dev}
 
   chatbot:
     build: ./target-app
-    container_name: acmebot
+    image: acmebot:${IMAGE_TAG:-dev}
     ports:
-      - "8000:8000"
+      - "${CHATBOT_PORT:-8000}:8000"
     depends_on:
       guardrail:
         condition: service_healthy
@@ -20,25 +28,21 @@ services:
       # Ollama runs on the host; host.docker.internal reaches it from the container
       OLLAMA_HOST: http://host.docker.internal:11434
       MODEL_NAME: qwen2.5:3b
-      # Toggle without editing this file:  $env:GUARDRAIL_ENABLED="true"  (PowerShell)
-      GUARDRAIL_ENABLED: "${GUARDRAIL_ENABLED:-false}"
       GUARDRAIL_URL: http://guardrail:8001
+      APP_VERSION: ${IMAGE_TAG:-dev}
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # needed on Linux
+      - "host.docker.internal:host-gateway"
 
-  # Attack suite. Not started by `docker compose up`; run it with:
-  #   docker compose run --rm redteam
-  redteam:
-    build:
-      context: .
-      dockerfile: redteam/Dockerfile
-    profiles: ["redteam"]
-    depends_on:
-      chatbot:
-        condition: service_healthy
-    environment:
-      TARGET_URL: http://chatbot:8000
-      MAX_ASR: "0.20"
-      REPORT_DIR: /srv/reports
+  # Deployment dashboard. Only started when named explicitly:
+  #   docker compose -p acme-dashboard up -d --build dashboard
+  dashboard:
+    build: ./dashboard
+    image: acme-dashboard:latest
+    profiles: ["dashboard"]
+    ports:
+      - "8090:8090"
     volumes:
-      - ./reports:/srv/reports
+      - dashboard-data:/data        # history survives container restarts
+
+volumes:
+  dashboard-data:

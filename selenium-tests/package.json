@@ -1,0 +1,15 @@
+{
+  "name": "acmebot-selenium-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Selenium UI/UX and security tests for the AcmeBot chat page",
+  "scripts": {
+    "test": "mocha ui.test.js --timeout 180000",
+    "test:ci": "mocha ui.test.js --timeout 180000 --reporter mocha-junit-reporter --reporter-options mochaFile=../reports/selenium.xml"
+  },
+  "devDependencies": {
+    "mocha": "^11.7.0",
+    "mocha-junit-reporter": "^2.2.1",
+    "selenium-webdriver": "^4.25.0"
+  }
+}

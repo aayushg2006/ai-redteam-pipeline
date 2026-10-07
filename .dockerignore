@@ -5,5 +5,5 @@
 **/*.pyc
 .pytest_cache
 reports
-node_modules
-guardrail/models
+**/node_modules
+**/tests

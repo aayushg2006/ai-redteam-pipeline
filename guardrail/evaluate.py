@@ -13,9 +13,12 @@ Three views of quality:
 recall = share of attacks caught.  FPR = share of normal messages wrongly blocked.
 
 Exit code: 0 = gate passed, 1 = gate failed. CI uses this to stop a bad model.
+  python -m guardrail.evaluate --report reports/model-eval.json
 """
+import argparse
 import json
 import sys
+from pathlib import Path
 
 from . import config
 from .detector import Detector
@@ -95,8 +98,15 @@ def evaluate() -> dict:
     return result
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="Evaluate the latest guardrail model.")
+    ap.add_argument("--report", help="also write the result JSON here (used by Jenkins)")
+    args = ap.parse_args(argv)
+
     r = evaluate()
+    if args.report:
+        Path(args.report).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.report).write_text(json.dumps(r, indent=2), encoding="utf-8")
     print(f"Model {r['version']}  (threshold {r['threshold']})")
     for name in ("heldout", "novel"):
         s = r[name]

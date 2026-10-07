@@ -1,0 +1,40 @@
+# AcmeBank security rulebase (config-as-code).
+#
+# A chat message passes through three layers of defence:
+#   1. input_rules   - readable regex rules for known attack patterns (fast, explainable)
+#   2. ml_guardrail  - the ML classifier service (catches paraphrased attacks)
+#   3. output_rules  - checks the model's REPLY before it reaches the user
+#
+# This file is copied into the chatbot image, so changing it means a new build.
+# To demo a security regression: set all three switches to false and push.
+# Jenkins will find the breach and refuse to deploy.
+
+ml_guardrail: true
+
+input_rules:
+  enabled: true
+  rules:
+    - id: R1
+      reason: Tries to override the bot's instructions
+      pattern: '\b(ignore|disregard|forget|override)\b[^.\n]{0,40}\b(previous|prior|earlier|above|all|your|the)\b[^.\n]{0,25}\b(instructions?|rules|prompt|directives?|task)\b'
+    - id: R2
+      reason: Asks for the hidden system prompt
+      pattern: '\b(system prompt|initial instructions|your instructions|everything above)\b'
+    - id: R3
+      reason: Role-play / jailbreak to remove the bot's restrictions
+      pattern: '\b(developer mode|jailbreak|no restrictions|no rules|unrestricted|free from (every|all) rules?)\b'
+    - id: R4
+      reason: Asks for internal secrets or credentials
+      pattern: '\b(internal|staff|secret)\b[\w ]{0,15}\b(key|code|data)\b|\bcredentials?\b'
+    - id: R5
+      reason: Hidden instructions addressed to the AI inside content
+      pattern: '(note to (the )?(assistant|ai)|ai (assistants? )?reading this|<hidden>|system override|new system message)'
+    - id: R6
+      reason: Contains HTML/JavaScript that could run in the browser
+      pattern: '<\s*(script|iframe|svg|img)\b|javascript\s*:|\bon(error|load|click|mouseover)\s*='
+
+output_rules:
+  # Block a reply that contains a planted secret or part of the system prompt.
+  block_secret_leaks: true
+  # Remove any HTML tags from the reply before it is shown in the browser.
+  strip_html: true

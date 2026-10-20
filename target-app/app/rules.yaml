@@ -9,10 +9,10 @@
 # To demo a security regression: set all three switches to false and push.
 # Jenkins will find the breach and refuse to deploy.
 
-ml_guardrail: true
+ml_guardrail: false
 
 input_rules:
-  enabled: true
+  enabled: false
   rules:
     - id: R1
       reason: Tries to override the bot's instructions
@@ -35,6 +35,6 @@ input_rules:
 
 output_rules:
   # Block a reply that contains a planted secret or part of the system prompt.
-  block_secret_leaks: true
+  block_secret_leaks: false
   # Remove any HTML tags from the reply before it is shown in the browser.
-  strip_html: true
+  strip_html: false

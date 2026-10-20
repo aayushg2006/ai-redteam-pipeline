@@ -15,10 +15,12 @@ services:
       context: .
       dockerfile: guardrail/Dockerfile
     image: acme-guardrail:${IMAGE_TAG:-dev}
+    restart: unless-stopped         # come back up after a PC/Docker restart
 
   chatbot:
     build: ./target-app
     image: acmebot:${IMAGE_TAG:-dev}
+    restart: unless-stopped
     ports:
       - "${CHATBOT_PORT:-8000}:8000"
     depends_on:
@@ -38,6 +40,7 @@ services:
   dashboard:
     build: ./dashboard
     image: acme-dashboard:latest
+    restart: unless-stopped
     profiles: ["dashboard"]
     ports:
       - "8090:8090"

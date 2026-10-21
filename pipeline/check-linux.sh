@@ -2,6 +2,8 @@
 # Run as the build user, including from a noninteractive Jenkins shell.
 set -euo pipefail
 
+[[ $(uname -s) == Linux ]] || { echo 'This pipeline requires a Linux build node.' >&2; exit 1; }
+
 for tool in python3 node npm git curl docker google-chrome; do
     command -v "$tool" >/dev/null || { echo "Missing tool: $tool" >&2; exit 1; }
 done

@@ -87,4 +87,4 @@ systemctl restart jenkins
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # Feed the script on stdin so Jenkins need not access the user's checkout path.
 runuser -u jenkins -- bash -s < "$script_dir/check-linux.sh"
-echo 'System setup complete. Add the linux label to the Jenkins node, then configure the pipeline job.'
+echo 'System setup complete. Configure the pipeline job on this Linux Jenkins host; no custom node label is needed.'

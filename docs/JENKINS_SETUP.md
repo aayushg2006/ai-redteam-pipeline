@@ -1,6 +1,7 @@
 # Jenkins setup on Ubuntu 24.04
 
-The Jenkinsfile runs on a Linux node with the `linux` label. It uses Python 3.12+
+The Jenkinsfile uses any available node on this Linux Jenkins host, without a
+custom label requirement. The prerequisite check verifies Linux. It uses Python 3.12+
 from the host and Python 3.13 in the application containers; the pinned
 scikit-learn and joblib versions match in both environments.
 
@@ -48,12 +49,13 @@ be downloaded with `ollama pull qwen2.5:3b`.
 1. Open http://localhost:8080 and sign in to the existing Jenkins installation.
 2. Go to **Manage Jenkins → Nodes → Built-In Node → Configure** (or configure
    the Linux agent on this host).
-3. Add `linux` to **Labels**, preserving any existing labels.
-4. Ensure **Number of executors** is at least 1. Save.
+3. Ensure **Number of executors** is at least 1 and the node is online. Save.
+   No custom `linux` label is required.
 
 Using the built-in node is sufficient for this local demo. A separate Linux
 agent is appropriate for a shared Jenkins installation; run the host setup on
-that agent instead.
+that agent instead and restrict the Jenkinsfile's agent to that Linux node's
+label if the installation also has non-Linux agents.
 
 ## 3. Make the Linux changes available to Jenkins
 
@@ -102,7 +104,7 @@ the archived report and open it locally.
 
 | Symptom | Action |
 |---|---|
-| Build waits for a node with label `linux` | Add the label to an online Linux node with a free executor. |
+| Existing build waits for label `linux` | Abort that build and start a new one after fetching the updated Jenkinsfile, which does not require the label. |
 | `node` / `npm` not found | Rerun host setup; nvm in your shell does not configure the Jenkins service. |
 | Docker permission denied | Rerun setup and restart the Jenkins agent/service to refresh groups. |
 | Ollama connection refused from containers | Check `systemctl status acme-ollama-bridge ollama` and rerun setup. |

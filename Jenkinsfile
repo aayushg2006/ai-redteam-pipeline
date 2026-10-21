@@ -6,7 +6,8 @@
 // If anything fails, production is not touched and the dashboard (port 8090)
 // shows why the deployment was stopped.
 pipeline {
-    agent { label 'linux' }
+    // This project uses the local Linux node; no custom Jenkins label is needed.
+    agent any
 
     triggers {
         pollSCM('H/2 * * * *')          // check GitHub for new commits every 2 minutes

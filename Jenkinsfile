@@ -76,6 +76,13 @@ pipeline {
             }
         }
 
+        stage('Warm up LLM') {
+            steps {
+                // load qwen2.5:3b into memory so the first test does not time out
+                sh '"$PY" pipeline/warmup.py'
+            }
+        }
+
         // catchError: mark the stage and build as failed but keep going, so the
         // Selenium tests still run and the dashboard gets every reason.
         stage('Red-team security tests') {

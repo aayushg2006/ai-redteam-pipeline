@@ -68,7 +68,9 @@ def collect(decision: str) -> dict:
     redteam, asr = redteam_reasons()
     reasons = []
     if decision == "BLOCKED":
-        reasons = (junit_failures(REPORTS / "unit-tests.xml", "Unit tests")
+        warmup = REPORTS / "llm-warmup.txt"
+        reasons = ([warmup.read_text(encoding="utf-8")] if warmup.exists() else [])
+        reasons += (junit_failures(REPORTS / "unit-tests.xml", "Unit tests")
                    + model_reasons()
                    + redteam
                    + junit_failures(REPORTS / "selenium.xml", "Selenium UI"))

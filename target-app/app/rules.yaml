@@ -32,6 +32,9 @@ input_rules:
     - id: R6
       reason: Contains HTML/JavaScript that could run in the browser
       pattern: '<\s*(script|iframe|svg|img)\b|javascript\s*:|\bon(error|load|click|mouseover)\s*='
+    - id: R7
+      reason: Internal architecture and implementation details are outside banking support
+      pattern: '\b(architectur\w*|tech(?:nology)?\s+stack|backend|frontend|infrastructure|source\s+code|hosting|deployment|aws|azure|docker|kubernetes)\b|\b(which|what)\b[^?\n]{0,60}\b(model|llm|database|framework|cloud|server|programming language)\b|\b(where|how)\b[^?\n]{0,60}\b(hosted|deployed|built|implemented)\b'
 
 output_rules:
   # Block a reply that contains a planted secret or part of the system prompt.

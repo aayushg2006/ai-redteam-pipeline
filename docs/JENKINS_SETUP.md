@@ -1,93 +1,112 @@
-# Jenkins setup on Windows (manual steps)
+# Jenkins setup on Ubuntu 24.04
 
-Everything except Jenkins was tested locally. Do these steps once.
+The Jenkinsfile runs on a Linux node with the `linux` label. It uses Python 3.12+
+from the host and Python 3.13 in the application containers; the pinned
+scikit-learn and joblib versions match in both environments.
 
-## 0. Before you start
-- Docker Desktop is running (whale icon in the system tray).
-- Ollama is running and the model is present: `ollama pull qwen2.5:3b`
-- Python 3.13 (with the `py` launcher), Node.js and Google Chrome are installed.
-  The pipeline runs `py -3.13` on purpose: on this PC plain `python` in cmd is an MSYS2 Python 3.14.
-- Note where the tools live (you need these paths in step 3). In PowerShell:
-  ```powershell
-  (Get-Command py).Source
-  (Get-Command node).Source
-  (Get-Command docker).Source
-  ```
+## 1. Prepare the host
 
-## 1. Install Jenkins
-1. Install Java if the Jenkins installer asks for it (Temurin JDK 17 or 21 from adoptium.net;
-   JDK 17 is already installed on this PC). If the installer says 17 is too old, install 21.
-2. Download the **Jenkins LTS Windows installer (.msi)** from jenkins.io/download and run it.
-3. On the *Service Logon Credentials* page choose **"Run service as local or domain user"** and
-   enter **your own Windows username and password**, then click *Test Credentials*.
-   - With a Microsoft account, use the local username (the folder name under `C:\Users`) and your
-     Microsoft account password.
-   - Why: the default LocalSystem account can't see your Python, Node or Docker Desktop.
-4. Keep port **8080**. Finish the install.
+This machine already has Jenkins with Java 21, Docker Engine with Compose,
+Google Chrome, and Ollama with `qwen2.5:3b`. Keep those services installed on the
+same machine as the Jenkins build node. Jenkins needs Git, Pipeline, JUnit, and
+HTML Publisher plugins (already present on this host).
 
-## 2. First login
-1. Open http://localhost:8080.
-2. Paste the password from `C:\ProgramData\Jenkins\.jenkins\secrets\initialAdminPassword`
-   (the page shows the exact path).
-3. Click **Install suggested plugins** (this includes Git, Pipeline, JUnit and Workspace Cleanup).
-4. Create your admin user.
-5. Manage Jenkins → Plugins → Available → install **HTML Publisher**. Restart Jenkins if asked.
+From the repository root, run:
 
-## 3. Make the tools visible to Jenkins
-Manage Jenkins → System → **Global properties** → tick *Environment variables* → Add:
-- Name: `PATH+EXTRA`
-- Value: the folders from step 0, separated by `;`, for example
-  `C:\Users\<you>\AppData\Local\Programs\Python\Launcher;C:\Program Files\nodejs;C:\Program Files\Docker\Docker\resources\bin`
-
-Save.
-
-## 4. Create the pipeline job
-1. New Item → name `ai-redteam-pipeline` → **Pipeline** → OK.
-2. In **Pipeline**, set Definition to **Pipeline script from SCM**.
-   - SCM: **Git**
-   - Repository URL: `https://github.com/aayushg2006/ai-redteam-pipeline.git`
-   - Credentials: none if the repo is public. If it's private, add a GitHub username plus a
-     Personal Access Token.
-   - Branch Specifier: `*/main`
-   - Script Path: `Jenkinsfile`
-3. Save.
-
-## 5. First run
-1. Click **Build Now**. The first run is slower (pip, npm and Docker downloads), about 10-15 min.
-   This first build also activates the "poll GitHub every 2 minutes" trigger from the Jenkinsfile.
-2. Watch it in **Stage View** or the console output.
-3. When it's green, open:
-   - http://localhost:8000 for the live AcmeBot (production)
-   - http://localhost:8090 for the deployment dashboard
-   - in the build page, **Red-Team Report** and **Test Result**
-
-If the red-team HTML report looks unstyled inside Jenkins, go to Manage Jenkins → Script
-Console, run this, then rebuild:
-```groovy
-System.setProperty("hudson.model.DirectoryBrowserSupport.CSP", "")
+```bash
+sudo bash pipeline/setup-linux.sh
 ```
 
-## 6. Demo for the faculty (Git branch + PR workflow)
-```powershell
-git checkout -b demo/break-security
-# edit target-app/app/rules.yaml: set ml_guardrail, input_rules.enabled,
-# block_secret_leaks and strip_html to false
-git commit -am "demo: disable security layers"
-git push -u origin demo/break-security
-```
-Open a Pull Request on GitHub and merge it into main. Within 2 minutes Jenkins builds it:
-red-team FAIL (about 67%), Selenium failures, **BLOCKED** on the dashboard, and
-http://localhost:8000 still shows the previous build (badge "Protection ON · build-N").
+The script installs Python venv support and a system-wide Node.js 24 runtime
+when needed (the user's private nvm install is not accessible to Jenkins). Node
+is downloaded from nodejs.org and checked against its SHA-256 manifest. It also
+adds Jenkins to the Docker group, sets its service PATH, and restarts Jenkins
+so those changes apply. Run this when no Jenkins build is in progress.
+Docker group membership grants control over the host through Docker; this is
+intended for this local demo machine and its trusted pipeline.
 
-Fix: revert the change (`git revert`, or set the switches back to `true`), push or merge again.
-The next build passes and is **deployed automatically**, and the dashboard shows the new LIVE build.
+On Linux, `host.docker.internal` resolves to Docker's bridge address, while
+Ollama normally listens only on `127.0.0.1`. If necessary, the script installs an
+`acme-ollama-bridge` systemd service that forwards the bridge's port 11434 to
+localhost. Ollama itself keeps its localhost binding; the proxy does not bind
+LAN interfaces. Rerun setup if you change Docker's default bridge address.
+
+The script finishes by checking tools, Docker access, and model availability
+**as the Jenkins user**. It does not start the app or trigger a Jenkins build.
+
+You can repeat that check separately from the repository root:
+
+```bash
+sudo -u jenkins bash -s < pipeline/check-linux.sh
+```
+
+If a check fails, fix the reported prerequisite and rerun setup. The model can
+be downloaded with `ollama pull qwen2.5:3b`.
+
+## 2. Configure the build node
+
+1. Open http://localhost:8080 and sign in to the existing Jenkins installation.
+2. Go to **Manage Jenkins → Nodes → Built-In Node → Configure** (or configure
+   the Linux agent on this host).
+3. Add `linux` to **Labels**, preserving any existing labels.
+4. Ensure **Number of executors** is at least 1. Save.
+
+Using the built-in node is sufficient for this local demo. A separate Linux
+agent is appropriate for a shared Jenkins installation; run the host setup on
+that agent instead.
+
+## 3. Make the Linux changes available to Jenkins
+
+The SCM job reads the Jenkinsfile from GitHub, not from this local directory.
+Commit and push these changes to the branch that the job will build before
+starting a build. For a Pipeline job using another branch, select that branch
+in the configuration below.
+
+## 4. Create or configure the pipeline job
+
+**New Item → ai-redteam-pipeline → Pipeline → OK**. Under **Pipeline**:
+
+| Setting | Value |
+|---|---|
+| Definition | Pipeline script from SCM |
+| SCM | Git |
+| Repository URL | `https://github.com/aayushg2006/ai-redteam-pipeline.git` |
+| Credentials | None for a public repository; GitHub credentials for a private one |
+| Branch Specifier | `*/main` (or the branch containing the Linux changes) |
+| Script Path | `Jenkinsfile` |
+
+Save. Avoid running another job that deploys this same project concurrently;
+the Compose project names and deployment ports are shared on this host.
+
+## 5. Run the pipeline when ready
+
+Click **Build Now** and watch **Console Output**. The first stage verifies the
+Linux prerequisites. Subsequent stages install dependencies, run unit tests,
+train and evaluate the guardrail, build images, start the candidate on port
+9000, run security and browser tests, and deploy to port 8000 only if every
+gate passes. The candidate is removed after the build. The Jenkinsfile also
+activates polling for new commits every two minutes after the first run.
+
+After a successful build:
+
+- Chatbot: http://localhost:8000
+- Deployment dashboard: http://localhost:8090
+- Jenkins build page: Test Result, Red-Team Report, and archived artifacts
+
+Ports 8000, 9000, and 8090 must be free before the first deployment. You do not
+need to run the application manually before Jenkins; the pipeline starts it.
+If the HTML report is restricted by Jenkins' content security policy, download
+the archived report and open it locally.
 
 ## Troubleshooting
-| Symptom | Fix |
+
+| Symptom | Action |
 |---|---|
-| `'py' is not recognized` | Step 3 PATH is wrong, or the service isn't running as your user (step 1.3). |
-| `error during connect ... docker_engine` | Docker Desktop isn't running, or Jenkins runs as LocalSystem. |
-| Red-team stage ERROR (exit 2), "502 Ollama unreachable" | Start Ollama and check `ollama list` shows `qwen2.5:3b`. |
-| Selenium: `session not created` | Update Chrome. Selenium Manager downloads a matching driver (needs internet). |
-| Port 8000/9000/8090 already in use | Stop the other program, or `docker compose -p acme-prod down` and similar. |
-| Change Jenkins service account later | `services.msc` → Jenkins → Properties → Log On → *This account*. |
+| Build waits for a node with label `linux` | Add the label to an online Linux node with a free executor. |
+| `node` / `npm` not found | Rerun host setup; nvm in your shell does not configure the Jenkins service. |
+| Docker permission denied | Rerun setup and restart the Jenkins agent/service to refresh groups. |
+| Ollama connection refused from containers | Check `systemctl status acme-ollama-bridge ollama` and rerun setup. |
+| Model missing | Run `ollama pull qwen2.5:3b`. |
+| Chrome fails to start | Confirm Chrome is installed and Jenkins can write to its home/cache; Selenium Manager needs internet for the matching driver. |
+| Host setup cannot use sudo | Run the provided command in a local terminal and enter your own sudo password. |
+| Need service logs | `sudo journalctl -u jenkins -u acme-ollama-bridge -n 80 --no-pager` |

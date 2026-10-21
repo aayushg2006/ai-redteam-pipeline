@@ -49,11 +49,13 @@ All three layers are switched on and off in one file, `target-app/app/rules.yaml
 
 ## Run it locally (without Jenkins)
 
-Prerequisites: Python 3.13, Docker Desktop, Node.js, Chrome, Ollama with `ollama pull qwen2.5:3b`.
+Prerequisites on Ubuntu 24.04: Python 3.12+, Docker Engine with Compose, Node.js 22+, Chrome, and Ollama with `ollama pull qwen2.5:3b`. Containers use Python 3.13.
 
-```powershell
-python -m venv .venv
-.venv\Scripts\activate
+For Jenkins and Docker-to-Ollama access, follow [the Linux setup guide](docs/JENKINS_SETUP.md). The one-time host setup command is `sudo bash pipeline/setup-linux.sh` (Jenkins must already be installed).
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r target-app/requirements.txt -r guardrail/requirements.txt -r redteam/requirements.txt
 
 python -m pytest                                   # 31 unit tests
@@ -61,7 +63,7 @@ python -m guardrail.train                          # train + version the ML mode
 python -m guardrail.evaluate                       # quality gate -> GATE: PASS
 docker compose up -d --build --wait                # chatbot on http://localhost:8000
 python -m redteam.runner --target http://127.0.0.1:8000   # security gate
-cd selenium-tests; npm ci; npm test                # UI tests
+(cd selenium-tests && npm ci && npm test)                # UI tests
 ```
 
 ## Demo: breach is blocked, fix is deployed

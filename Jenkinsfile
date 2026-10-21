@@ -1,4 +1,4 @@
-// AcmeBank AI security pipeline (Windows Jenkins agent, so steps use `bat`).
+// AcmeBank AI security pipeline (Linux Jenkins agent).
 //
 // Every push to main:  test -> train + evaluate model -> build images ->
 // deploy CANDIDATE (port 9000) -> attack it (red-team) + UI tests (Selenium) ->
@@ -6,7 +6,7 @@
 // If anything fails, production is not touched and the dashboard (port 8090)
 // shows why the deployment was stopped.
 pipeline {
-    agent any
+    agent { label 'linux' }
 
     triggers {
         pollSCM('H/2 * * * *')          // check GitHub for new commits every 2 minutes
@@ -18,53 +18,60 @@ pipeline {
     }
 
     environment {
+        PATH = "/usr/local/bin:${env.PATH}"
         IMAGE_TAG = "build-${env.BUILD_NUMBER}"   // Docker image tag for this build
-        PY = '.venv\\Scripts\\python.exe'         // Python inside the workspace venv
+        PY = '.venv/bin/python'                  // Python inside the workspace venv
     }
 
     stages {
+        stage('Check Linux prerequisites') {
+            steps {
+                sh 'rm -rf reports'
+                sh 'PATH=/usr/local/bin:$PATH bash pipeline/check-linux.sh'
+            }
+        }
+
         stage('Setup') {
             steps {
-                bat 'if exist reports rmdir /s /q reports'
-                bat 'py -3.13 -m venv .venv'     // py launcher: always picks Python 3.13
-                bat "${PY} -m pip install -q -r target-app/requirements.txt -r guardrail/requirements.txt -r redteam/requirements.txt"
+                sh 'python3 -m venv .venv'
+                sh '"$PY" -m pip install -q -r target-app/requirements.txt -r guardrail/requirements.txt -r redteam/requirements.txt'
                 dir('selenium-tests') {
-                    bat 'npm ci'
+                    sh 'npm ci'
                 }
                 // The dashboard runs all the time; this only (re)starts it if needed.
-                bat 'docker compose -p acme-dashboard up -d --build dashboard'
+                sh 'docker compose -p acme-dashboard up -d --build dashboard'
             }
         }
 
         stage('Unit tests') {
             steps {
-                bat "${PY} -m pytest --junitxml=reports/unit-tests.xml"
+                sh '"$PY" -m pytest --junitxml=reports/unit-tests.xml'
             }
         }
 
         stage('Train model') {
             steps {
-                bat "${PY} -m guardrail.train"
+                sh '"$PY" -m guardrail.train'
             }
         }
 
         stage('Evaluate model (quality gate)') {
             steps {
                 // exit code 1 = model is not good enough -> pipeline stops here
-                bat "${PY} -m guardrail.evaluate --report reports/model-eval.json"
+                sh '"$PY" -m guardrail.evaluate --report reports/model-eval.json'
             }
         }
 
         stage('Build Docker images') {
             steps {
-                bat 'docker compose build'
+                sh 'docker compose build'
             }
         }
 
         stage('Deploy candidate') {
             steps {
                 withEnv(['CHATBOT_PORT=9000']) {
-                    bat 'docker compose -p acme-candidate up -d --wait --no-build'
+                    sh 'docker compose -p acme-candidate up -d --wait --no-build'
                 }
             }
         }
@@ -74,7 +81,7 @@ pipeline {
         stage('Red-team security tests') {
             steps {
                 catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
-                    bat "${PY} -m redteam.runner --target http://127.0.0.1:9000 --report-dir reports/redteam"
+                    sh '"$PY" -m redteam.runner --target http://127.0.0.1:9000 --report-dir reports/redteam'
                 }
             }
         }
@@ -84,7 +91,7 @@ pipeline {
                 catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
                     dir('selenium-tests') {
                         withEnv(['BASE_URL=http://127.0.0.1:9000']) {
-                            bat 'npm run test:ci'
+                            sh 'npm run test:ci'
                         }
                     }
                 }
@@ -97,16 +104,16 @@ pipeline {
             }
             steps {
                 withEnv(['CHATBOT_PORT=8000']) {
-                    bat 'docker compose -p acme-prod up -d --wait --no-build'
+                    sh 'docker compose -p acme-prod up -d --wait --no-build'
                 }
-                bat 'curl -sf http://127.0.0.1:8000/health'    // smoke test
+                sh 'curl -sf http://127.0.0.1:8000/health'    // smoke test
             }
         }
     }
 
     post {
         always {
-            bat 'docker compose -p acme-candidate down'
+            sh(returnStatus: true, script: 'docker compose -p acme-candidate down')
             junit allowEmptyResults: true, testResults: 'reports/*.xml'
             archiveArtifacts allowEmptyArchive: true, artifacts: 'reports/**, guardrail/models/**'
             publishHTML(target: [reportName: 'Red-Team Report', reportDir: 'reports/redteam',
@@ -114,11 +121,11 @@ pipeline {
                                  alwaysLinkToLastBuild: true, allowMissing: true])
         }
         success {
-            bat(returnStatus: true, script: "${PY} pipeline/notify.py DEPLOYED")
+            sh(returnStatus: true, script: '"$PY" pipeline/notify.py DEPLOYED')
             script { setDescription() }
         }
         failure {
-            bat(returnStatus: true, script: "${PY} pipeline/notify.py BLOCKED")
+            sh(returnStatus: true, script: '"$PY" pipeline/notify.py BLOCKED')
             script { setDescription() }
         }
     }

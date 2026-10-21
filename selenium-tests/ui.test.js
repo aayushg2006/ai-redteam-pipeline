@@ -5,8 +5,8 @@
 // The tests drive a real (headless) Chrome like a user would: type, click,
 // wait for the reply, and check what is shown on the page.
 const assert = require("assert");
-const { Builder, By, until } = require("selenium-webdriver");
-const chrome = require("selenium-webdriver/chrome");
+const { By, until } = require("selenium-webdriver");
+const { createChromeDriver } = require("./browser");
 
 const BASE_URL = process.env.BASE_URL || "http://127.0.0.1:8000";
 const REPLY_TIMEOUT = 150000; // the local LLM can take a while on a CPU
@@ -16,8 +16,7 @@ describe("AcmeBot chat UI", function () {
   let driver;
 
   before(async function () {
-    const options = new chrome.Options().addArguments("--headless=new", "--window-size=1280,900");
-    driver = await new Builder().forBrowser("chrome").setChromeOptions(options).build();
+    driver = await createChromeDriver();
   });
 
   after(async function () {

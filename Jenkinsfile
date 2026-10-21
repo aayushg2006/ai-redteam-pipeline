@@ -38,6 +38,8 @@ pipeline {
                 sh '"$PY" -m pip install -q -r target-app/requirements.txt -r guardrail/requirements.txt -r redteam/requirements.txt'
                 dir('selenium-tests') {
                     sh 'npm ci'
+                    // Download/cache the matching driver and verify Chrome starts.
+                    sh 'node browser.js'
                 }
                 // The dashboard runs all the time; this only (re)starts it if needed.
                 sh 'docker compose -p acme-dashboard up -d --build dashboard'

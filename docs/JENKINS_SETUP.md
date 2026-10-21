@@ -109,6 +109,6 @@ the archived report and open it locally.
 | Docker permission denied | Rerun setup and restart the Jenkins agent/service to refresh groups. |
 | Ollama connection refused from containers | Check `systemctl status acme-ollama-bridge ollama` and rerun setup. |
 | Model missing | Run `ollama pull qwen2.5:3b`. |
-| Chrome fails to start | Confirm Chrome is installed and Jenkins can write to its home/cache; Selenium Manager needs internet for the matching driver. |
+| Chrome fails to start | Setup runs `node browser.js` to download/cache ChromeDriver and check headless Chrome before deployment. Driver acquisition retries three times for temporary network errors. Confirm Chrome is installed, Jenkins can write to its home/cache, and it can reach Google's ChromeDriver download server. Setup errors are printed in the console. |
 | Host setup cannot use sudo | Run the provided command in a local terminal and enter your own sudo password. |
 | Need service logs | `sudo journalctl -u jenkins -u acme-ollama-bridge -n 80 --no-pager` |

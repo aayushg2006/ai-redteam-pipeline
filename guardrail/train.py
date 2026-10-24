@@ -50,7 +50,7 @@ def build_pipeline() -> Pipeline:
         ("words", TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True, lowercase=True)),
         ("chars", TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), sublinear_tf=True, lowercase=True)),
     ])
-    clf = LogisticRegression(C=10.0, class_weight="balanced", max_iter=2000, random_state=config.SEED)
+    clf = LogisticRegression(C=3.4, class_weight="balanced", max_iter=2000, random_state=config.SEED)
     return Pipeline([("features", features), ("clf", clf)])
 
 
